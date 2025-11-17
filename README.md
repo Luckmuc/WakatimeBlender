@@ -84,3 +84,16 @@ When working on issues and/or new features, please, use the latest stable Blende
 
 Before submitting a PR, always format the code with [`black`](https://github.com/psf/black). _I don't particularly like
 its style myself, but it's the easiest-to-set-up common ground._
+
+### Status Bar Time Display
+
+After enabling the add-on, you will see a compact Wakatime time counter in Blender's status bar (bottom of the window). It shows the total tracked time for the current Blender session/day in HH:MM format. Clicking the time opens the configured Wakatime server dashboard (default: https://api.wakatime.com/). You can:
+
+* Toggle the display or adjust refresh interval under Add-ons -> Wakatime (Addon Preferences) via:
+	* Show Status Bar Time (on/off)
+	* Refresh Interval (seconds)
+* Change the API Server URL in Wakatime Preferences (search "Wakatime Preferences" or via Blender->System menu).
+
+If you point the API Server URL to a self-hosted compatible endpoint, clicking the status bar time will open that URL instead.
+
+The time value updates on a timer and also whenever heartbeats accumulate. Large idle gaps (over 10 minutes) are ignored for tracked time accumulation.

@@ -1,162 +1,117 @@
-from typing import Optional
-
 import bpy
-from bpy.props import BoolProperty, FloatProperty, StringProperty
-from bpy_types import PropertyGroup
+from bpy.props import StringProperty
 from . import settings
-from .log import ERROR, log
 from .utils import u
 
-
-class WakatimeProjectProperties(PropertyGroup):
-    _attr = "wakatime_preferences"
-    bl_idname = "preferences.wakatime_preferences"
-    bl_label = "Wakatime Operator"
-
-    _default_heartbeat_frequency = 2
-    _default_always_overwrite_projectname = False
-    _default_use_project_folder = False
-    _default_chars = "1234567890._"
-    _default_prefix = ""
-    _default_postfix = ""
-
-    always_overwrite_name: BoolProperty(
-        name="Overwrite project-discovery with the name from below",
-        default=_default_always_overwrite_projectname,
-        description="Wakatime will guess the project-name (e.g. from the git-repo). Checking this box will overwrite "
-        "this auto-discovered name (with the name according to the rules below).\n\nHint: when not "
-        "working with git, the project's name will always be set according to the rules "
-        f"below.",
-    )
-
-    use_project_folder: BoolProperty(
-        name="Use folder-name as project-name",
-        default=_default_use_project_folder,
-        description="Will use the name of the folder/directory-name as the project-name.\n\nExample: if selected, "
-        "filename 'birthday_project/test_01.blend' will result in project-name "
-        "'birthday_project'\n\nHint: if not activated, the blender-filename without the blend-extension "
-        f"is used.",
-    )
-
-    truncate_trail: StringProperty(
-        name="Cut trailing characters",
-        default=_default_chars,
-        description="With the project-name extracted (from folder- or filename), these trailing characters will be "
-        "removed too.\n\nExample: filename 'birthday_01_test_02.blend' will result in project-name "
-        "'birthday_01_test'",
-    )
-
-    project_prefix: StringProperty(
-        name="Project-name prefix",
-        default=_default_prefix,
-        description="This text will be attached in front of the project-name.",
-    )
-    project_postfix: StringProperty(
-        name="Project-name postfix",
-        default=_default_postfix,
-        description="This text will be attached at the end of the project-name, after the trailing characters were "
-        "removed.",
-    )
-
-    heartbeat_frequency: FloatProperty(
-        name="Heartbeat Frequency (minutes)",
-        default=_default_heartbeat_frequency,
-        min=1,
-        max=60,
-        description="How often the plugin should send heartbeats to Wakatime server",
-    )
-
-    @classmethod
-    def register(cls):
-        setattr(bpy.types.World, cls._attr, bpy.props.PointerProperty(type=cls))
-
-    @classmethod
-    def load_defaults(cls):
-        annotation = cls.__annotations__["always_overwrite_name"]
-        if isinstance(annotation, tuple):
-            keywords = annotation[1]
-        else:
-            keywords = annotation.keywords
-        keywords["default"] = settings.get_bool("always_overwrite_project_name")
-
-    @classmethod
-    def reload_defaults(cls):
-        try:
-            bpy.utils.unregister_class(WakatimeProjectProperties)
-        except ValueError:
-            pass
-        cls.load_defaults()
-        bpy.utils.register_class(WakatimeProjectProperties)
-
-    @classmethod
-    def instance(cls) -> Optional["WakatimeProjectProperties"]:
-        try:
-            worlds = bpy.context.blend_data.worlds
-            first_world = worlds[0]
-            return getattr(first_world, cls._attr)
-        except (IndexError, AttributeError, TypeError):
-            log(ERROR, "Unable to get WakatimeProjectProperties from the First World")
-        return None
+DEFAULT_API_SERVER_URL = "https://api.wakatime.com/"
 
 
 class PreferencesDialog(bpy.types.Operator):
     bl_idname = "ui.wakatime_blender_preferences"
     bl_label = "Wakatime Preferences"
-    bl_description = "Configure wakatime plugin for blender"
+    bl_description = "Configure Wakatime for Blender"
+    bl_options = {"REGISTER", "INTERNAL"}
 
+    # Properties with proper annotations for Blender 2.8+
     api_key: StringProperty(
-        name="API Key",
+        name="API Key", 
+        default="", 
+        description="Your Wakatime API key"
+    )
+    api_server_url: StringProperty(
+        name="API Server URL", 
         default="",
-        description="Wakatime API key from your account",
+        description="Wakatime API server URL"
     )
-
-    always_overwrite_name_default: BoolProperty(
-        name="Overwrite project-discovery by default",
-        default=False,
-        description="Wakatime will guess the project-name (e.g. from the git-repo). "
-        "Checking this box will overwrite this auto-discovered name "
-        "for new blend files by default.",
-    )
-
-    is_shown = False
 
     @classmethod
     def show(cls):
-        if not cls.is_shown:
-            cls.is_shown = True
-            bpy.ops.ui.wakatime_blender_preferences("INVOKE_DEFAULT")
+        try:
+            bpy.ops.ui.wakatime_blender_preferences('INVOKE_DEFAULT')
+        except Exception:
+            pass
 
     @classmethod
-    def _hide(cls):
-        cls.is_shown = False
+    def ensure_props(cls):
+        # Properties are now defined with annotations, so they should persist
+        # This method is kept for compatibility but no longer needs to recreate properties
+        pass
 
     def execute(self, _context):
-        settings.set_api_key(u(self.api_key))
-        settings.set(
-            "always_overwrite_project_name", f"{self.always_overwrite_name_default}"
-        )
-        WakatimeProjectProperties.reload_defaults()
-        self._hide()
-        return {"FINISHED"}
+        try:
+            # Validate API key
+            if not self.api_key.strip():
+                self.report({'ERROR'}, "API Key is required. Get yours from https://wakatime.com/api-key")
+                return {"CANCELLED"}
+            
+            # Validate API server URL
+            if not self.api_server_url.strip():
+                self.report({'ERROR'}, "API Server URL is required")
+                return {"CANCELLED"}
+            
+            if not self.api_server_url.startswith(("http://", "https://")):
+                self.report({'ERROR'}, "API Server URL must start with http:// or https://")
+                return {"CANCELLED"}
+            
+            # Save settings with the utility function to ensure proper encoding
+            normalized_api_url = u(self.api_server_url).strip()
+            settings.set_api_key(u(self.api_key))
+            settings.set_api_server_url(normalized_api_url)
+            self.api_server_url = normalized_api_url
+            settings.ensure_offline_defaults()
+            
+            self.report({'INFO'}, "Wakatime preferences saved successfully")
+            return {"FINISHED"}
+            
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to save preferences: {str(e)}")
+            return {"CANCELLED"}
 
     def invoke(self, context, _event):
-        self.api_key = settings.api_key()
-        self.always_overwrite_name_default = settings.get_bool(
-            "always_overwrite_project_name"
-        )
-        return context.window_manager.invoke_props_dialog(self, width=500)
+        # Ensure properties are set up
+        self.__class__.ensure_props()
+        
+        try:
+            settings.load()
+            # Load existing values from settings
+            self.api_key = settings.api_key()
+            stored_url = settings.get("api_server_url", "")
+            if stored_url == settings.DEFAULT_API_SERVER_URL:
+                stored_url = ""
+            self.api_server_url = stored_url
+            
+            # Show the dialog with a reasonable width
+            return context.window_manager.invoke_props_dialog(self, width=520)
+            
+        except Exception as e:
+            # If there's an error, show a simple message dialog
+            self.report({'ERROR'}, f"Failed to load preferences: {str(e)}")
+            return {'CANCELLED'}
 
     def draw(self, _context):
-        props = WakatimeProjectProperties.instance()
-        if props is None:
-            return
         layout = self.layout
-        col = layout.column()
-        col.prop(self, "api_key")
-        col.prop(self, "always_overwrite_name_default")
-        col.prop(props, "always_overwrite_name")
-        col.prop(props, "truncate_trail")
-        col.prop(props, "project_prefix")
-        col.prop(props, "project_postfix")
-        col.prop(props, "use_project_folder")
-        col.prop(props, "heartbeat_frequency")
+        
+        # Check if properties are available
+        if not all(hasattr(self, prop) for prop in ["api_key", "api_server_url"]):
+            layout.label(text="Error: Properties not initialized properly", icon="ERROR")
+            layout.label(text="Please try closing and reopening this dialog")
+            return
+        
+        col = layout.column(align=True)
+        col.label(text="Wakatime Configuration", icon="PREFERENCES")
+        col.separator()
+        
+        # API Configuration section
+        box = col.box()
+        box.label(text="API Settings", icon="WORLD")
+        box.prop(self, "api_key", icon="KEY_HLT")
+        box.prop(self, "api_server_url", icon="URL")
+        
+        col.separator()
+        
+        maintenance = col.box()
+        maintenance.label(text="Maintenance", icon="FILE_REFRESH")
+        maintenance.operator("ui.download_wakatime_client", text="Force Sync", icon="FILE_REFRESH")
+        info_box = maintenance.box()
+        info_box.scale_y = 0.8
+        info_box.label(text="Force download the Wakatime runtime if the CLI is missing", icon="INFO")

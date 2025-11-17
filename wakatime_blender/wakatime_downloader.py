@@ -12,7 +12,6 @@ from zipfile import ZipFile
 import bpy
 from . import settings
 from .log import ERROR, INFO, log
-from .preferences import WakatimeProjectProperties
 
 ReportArgs = Tuple[set, str]
 
@@ -49,6 +48,13 @@ class WakatimeDownloader(threading.Thread):
 
     def run(self):
         with self._lock:
+            # Blender 4.2+ Extensions: check online access before network
+            if not getattr(bpy.app, "online_access", True):
+                self._set_status(
+                    "Wakatime client download blocked: Blender online access is disabled.",
+                    ERROR,
+                )
+                return
             if not os.path.isdir(settings.RESOURCES_DIR):
                 # there is no resources directory,
                 # attempting to create one
@@ -62,18 +68,20 @@ class WakatimeDownloader(threading.Thread):
                     return
             # check if the client is already downloaded,
             # or the downloading is forced
-            if not self._force and os.path.isfile(settings.API_CLIENT):
+            existing_client = settings.api_client_path()
+            if not self._force and existing_client:
                 self._set_status("Found Wakatime client")
                 return
             if os.path.isdir(settings.API_CLIENT_DIR):
                 # remove wakatime client dir if it is present
                 self._set_status("Removing old runtime...")
                 shutil.rmtree(settings.API_CLIENT_DIR, ignore_errors=True)
+                settings.reset_api_client_path_cache()
             # there is no Wakatime client present in the directory,
             # or the downloading is forced
             self._set_status("Downloading Wakatime...")
             # the path to the zipped Wakatime client
-            zip_file_path = os.path.join(settings.RESOURCES_DIR, "wakatime-master.zip")
+            zip_file_path = os.path.join(settings.RESOURCES_DIR, "wakatime-runtime.zip")
             # issue a new request to download said client
             req = urllib.request.Request(settings.API_CLIENT_URL)
             context = ssl._create_unverified_context()
@@ -108,7 +116,16 @@ class WakatimeDownloader(threading.Thread):
                     "Unable to remove wakatime archive",
                     ERROR,
                 )
-            self._set_status("Wakatime client downloaded")
+            settings.reset_api_client_path_cache()
+            downloaded_client = settings.api_client_path()
+            if downloaded_client:
+                settings.ensure_cli_compatibility()
+                self._set_status("Wakatime client downloaded")
+            else:
+                self._set_status(
+                    "Downloaded Wakatime client but could not locate cli.py. Please retry or report this issue.",
+                    ERROR,
+                )
 
 
 class ForceWakatimeDownload(bpy.types.Operator):
@@ -121,7 +138,7 @@ class ForceWakatimeDownload(bpy.types.Operator):
 
     @classmethod
     def poll(cls, _context):
-        return WakatimeProjectProperties.instance() is not None
+        return True
 
     def invoke(self, context, _event):
         self._last_status = None
